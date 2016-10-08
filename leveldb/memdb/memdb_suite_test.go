@@ -1,6 +1,7 @@
 package memdb
 
 import (
+	"math/rand"
 	"sync"
 	"testing"
 
@@ -22,12 +23,33 @@ func TestRace(t *testing.T) {
 			defer wg.Done()
 
 			for i := 0; i < 2000; i++ {
-				if rnd.Intn(5) == 0 {
-					rnd.Seed(rnd.Int63())
+				if rnd.Int(3) == 0 {
+					rnd.src.Seed(rnd.src.Int63())
 				}
 			}
 
 		}(db, &wg)
 	}
 	wg.Wait()
+}
+
+func TestBitRand(t *testing.T) {
+	rnd := &bitRand{
+		src: rand.NewSource(0xdeadbeef),
+	}
+	var slot [4]int
+
+	for i := 0; i < 100000; i++ {
+		slot[rnd.Int(2)]++
+	}
+
+	sum := 0
+	for i := 0; i < 4; i++ {
+		x := slot[i] - 25000
+		sum += x * x
+
+		if sum >= 200000 {
+			t.Fatalf("not so random %d! %d %d %d %d", sum, slot[0], slot[1], slot[2], slot[3])
+		}
+	}
 }
