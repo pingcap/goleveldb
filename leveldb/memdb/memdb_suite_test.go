@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pingcap/goleveldb/leveldb/comparer"
 	"github.com/pingcap/goleveldb/leveldb/testutil"
@@ -23,7 +24,7 @@ func TestRace(t *testing.T) {
 			defer wg.Done()
 
 			for i := 0; i < 2000; i++ {
-				if rnd.Int(3) == 0 {
+				if rnd.src.Int63()%5 == 0 {
 					rnd.src.Seed(rnd.src.Int63())
 				}
 			}
@@ -34,13 +35,14 @@ func TestRace(t *testing.T) {
 }
 
 func TestBitRand(t *testing.T) {
+	src := rand.NewSource(int64(time.Now().Nanosecond()))
 	rnd := &bitRand{
-		src: rand.NewSource(0xdeadbeef),
+		src: src,
 	}
 	var slot [4]int
 
 	for i := 0; i < 100000; i++ {
-		slot[rnd.Int(2)]++
+		slot[rnd.bitN(2)]++
 	}
 
 	sum := 0

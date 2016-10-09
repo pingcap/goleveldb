@@ -38,9 +38,7 @@ func (r *lockedSource) Seed(seed int64) {
 var (
 	ErrNotFound     = errors.ErrNotFound
 	ErrIterReleased = errors.New("leveldb/memdb: iterator released")
-	rnd             = &bitRand{
-		src: &lockedSource{src: rand.NewSource(0xdeadbeef)},
-	}
+	rnd             = &lockedSource{src: rand.NewSource(0xdeadbeef)}
 )
 
 const tMaxHeight = 12
@@ -204,8 +202,8 @@ type bitRand struct {
 	bits  uint
 }
 
-// Int return a random int value of n bits.
-func (r *bitRand) Int(n uint) uint64 {
+// bitN return a random int value of n bits.
+func (r *bitRand) bitN(n uint) uint64 {
 	if r.bits < n {
 		r.value = uint64(r.src.Int63())
 		r.bits = 60
@@ -242,7 +240,7 @@ type DB struct {
 
 func (p *DB) randHeight() (h int) {
 	h = 1
-	for h < tMaxHeight && p.rnd.Int(2) == 0 {
+	for h < tMaxHeight && p.rnd.bitN(2) == 0 {
 		h++
 	}
 	return
@@ -502,7 +500,7 @@ func (p *DB) Reset() {
 func New(cmp comparer.BasicComparer, capacity int) *DB {
 	p := &DB{
 		cmp:       cmp,
-		rnd:       rnd,
+		rnd:       &bitRand{src: rnd},
 		maxHeight: 1,
 		kvData:    make([]byte, 0, capacity),
 		nodeData:  make([]int, 4+tMaxHeight),
