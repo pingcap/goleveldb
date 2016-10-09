@@ -38,7 +38,7 @@ func (r *lockedSource) Seed(seed int64) {
 var (
 	ErrNotFound     = errors.ErrNotFound
 	ErrIterReleased = errors.New("leveldb/memdb: iterator released")
-	rnd             = &lockedSource{src: rand.NewSource(0xdeadbeef)}
+	rndSrc          = &lockedSource{src: rand.NewSource(0xdeadbeef)}
 )
 
 const tMaxHeight = 12
@@ -500,7 +500,7 @@ func (p *DB) Reset() {
 func New(cmp comparer.BasicComparer, capacity int) *DB {
 	p := &DB{
 		cmp:       cmp,
-		rnd:       &bitRand{src: rnd},
+		rnd:       &bitRand{src: rndSrc},
 		maxHeight: 1,
 		kvData:    make([]byte, 0, capacity),
 		nodeData:  make([]int, 4+tMaxHeight),

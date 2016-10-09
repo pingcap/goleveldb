@@ -24,8 +24,8 @@ func TestRace(t *testing.T) {
 			defer wg.Done()
 
 			for i := 0; i < 2000; i++ {
-				if rnd.src.Int63()%5 == 0 {
-					rnd.src.Seed(rnd.src.Int63())
+				if db.rnd.src.Int63()%5 == 0 {
+					db.rnd.src.Seed(db.rnd.src.Int63())
 				}
 			}
 
