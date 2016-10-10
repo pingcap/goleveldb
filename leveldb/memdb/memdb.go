@@ -238,8 +238,18 @@ type DB struct {
 	kvSize    int
 }
 
+// randHeight returns a random int value for the height of a skip-list node.
 func (p *DB) randHeight() (h int) {
 	h = 1
+	// From wikipedia: https://en.wikipedia.org/wiki/Skip_list
+	// "Each higher layer acts as an "express lane" for the lists below, where
+	// an element in layer i appears in layer i+1 with some fixed probability p
+	// (two commonly used values for p are 1/2 or 1/4)."
+
+	// here we chose 1/4 as the probability, which means
+	// 1/4 possibility return a height of 2,
+	// 1/16 possibility of height 3,
+	// 1/64 possibility of height 4, and so on...
 	for h < tMaxHeight && p.rnd.bitN(2) == 0 {
 		h++
 	}
