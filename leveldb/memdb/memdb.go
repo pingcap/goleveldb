@@ -11,16 +11,35 @@ import (
 	"math/rand"
 	"sync"
 
-	"github.com/syndtr/goleveldb/leveldb/comparer"
-	"github.com/syndtr/goleveldb/leveldb/errors"
-	"github.com/syndtr/goleveldb/leveldb/iterator"
-	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/pingcap/goleveldb/leveldb/comparer"
+	"github.com/pingcap/goleveldb/leveldb/errors"
+	"github.com/pingcap/goleveldb/leveldb/iterator"
+	"github.com/pingcap/goleveldb/leveldb/util"
 )
+
+type lockedSource struct {
+	lk  sync.Mutex
+	src rand.Source
+}
+
+func (r *lockedSource) Int63() (n int64) {
+	r.lk.Lock()
+	n = r.src.Int63()
+	r.lk.Unlock()
+	return
+}
+
+func (r *lockedSource) Seed(seed int64) {
+	r.lk.Lock()
+	r.src.Seed(seed)
+	r.lk.Unlock()
+}
 
 // Common errors.
 var (
 	ErrNotFound     = errors.ErrNotFound
 	ErrIterReleased = errors.New("leveldb/memdb: iterator released")
+	rndSrc          = &lockedSource{src: rand.NewSource(0xdeadbeef)}
 )
 
 const tMaxHeight = 12
@@ -178,10 +197,32 @@ const (
 	nNext
 )
 
+type bitRand struct {
+	src   rand.Source
+	value uint64
+	bits  uint
+}
+
+// bitN return a random int value of n bits.
+func (r *bitRand) bitN(n uint) uint64 {
+	if r.bits < n {
+		r.value = uint64(r.src.Int63())
+		r.bits = 60
+	}
+
+	// take n bits from value
+	mask := (1 << n) - 1
+	ret := r.value & uint64(mask)
+
+	r.value = r.value >> n
+	r.bits -= n
+	return ret
+}
+
 // DB is an in-memory key/value database.
 type DB struct {
 	cmp comparer.BasicComparer
-	rnd *rand.Rand
+	rnd *bitRand
 
 	mu     sync.RWMutex
 	kvData []byte
@@ -198,10 +239,19 @@ type DB struct {
 	kvSize    int
 }
 
+// randHeight returns a random int value for the height of a skip-list node.
 func (p *DB) randHeight() (h int) {
-	const branching = 4
 	h = 1
-	for h < tMaxHeight && p.rnd.Int()%branching == 0 {
+	// From wikipedia: https://en.wikipedia.org/wiki/Skip_list
+	// "Each higher layer acts as an "express lane" for the lists below, where
+	// an element in layer i appears in layer i+1 with some fixed probability p
+	// (two commonly used values for p are 1/2 or 1/4)."
+
+	// here we chose 1/4 as the probability, which means
+	// 1/4 possibility return a height of 2,
+	// 1/16 possibility of height 3,
+	// 1/64 possibility of height 4, and so on...
+	for h < tMaxHeight && p.rnd.bitN(2) == 0 {
 		h++
 	}
 	return
@@ -437,7 +487,6 @@ func (p *DB) Len() int {
 // Reset resets the DB to initial empty state. Allows reuse the buffer.
 func (p *DB) Reset() {
 	p.mu.Lock()
-	p.rnd = rand.New(rand.NewSource(0xdeadbeef))
 	p.maxHeight = 1
 	p.n = 0
 	p.kvSize = 0
@@ -465,7 +514,7 @@ func (p *DB) Reset() {
 func New(cmp comparer.BasicComparer, capacity int) *DB {
 	p := &DB{
 		cmp:       cmp,
-		rnd:       rand.New(rand.NewSource(0xdeadbeef)),
+		rnd:       &bitRand{src: rndSrc},
 		maxHeight: 1,
 		kvData:    make([]byte, 0, capacity),
 		nodeData:  make([]int, 4+tMaxHeight),
