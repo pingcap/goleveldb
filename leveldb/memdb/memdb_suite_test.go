@@ -8,6 +8,7 @@ import (
 
 	"github.com/pingcap/goleveldb/leveldb/comparer"
 	"github.com/pingcap/goleveldb/leveldb/testutil"
+	"github.com/pingcap/goleveldb/leveldb/util"
 )
 
 func TestMemDB(t *testing.T) {
@@ -32,6 +33,38 @@ func TestRace(t *testing.T) {
 		}(db, &wg)
 	}
 	wg.Wait()
+}
+
+func TestMergeSize(t *testing.T) {
+	db1 := New(comparer.DefaultComparer, 0)
+	db2 := New(comparer.DefaultComparer, 0)
+
+	db1.Put([]byte("1"), []byte("1"))
+	db1.Put([]byte("2"), []byte("2"))
+
+	db2.Put([]byte("1"), []byte("111"))
+	db2.Put([]byte("2"), nil)
+	db2.Put([]byte("3"), []byte("3"))
+
+	calSize, calCount, _ := db1.PreMerge(&dbIter{p: db2, slice: &util.Range{}})
+
+	iter := &dbIter{p: db2, slice: &util.Range{}}
+	iter.Release()
+	iter.Next()
+	for iter.Valid() {
+		if iter.Value() == nil {
+			db1.Delete(iter.key)
+		} else {
+			db1.Put(iter.key, iter.value)
+		}
+		iter.Next()
+	}
+	if calSize != db1.kvSize {
+		t.Fatalf("precal: %d but got %d", calSize, db1.kvSize)
+	}
+	if calCount != db1.Len() {
+		t.Fatalf("precal: %d but got %d", calCount, db1.Len())
+	}
 }
 
 func TestBitRand(t *testing.T) {

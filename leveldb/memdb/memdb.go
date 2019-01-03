@@ -320,6 +320,37 @@ func (p *DB) findLast() int {
 	return node
 }
 
+func (p *DB) PreMerge(iter iterator.Iterator) (mergedSize, mergedCount, maxEntrySize int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	mergedSize = p.kvSize
+	mergedCount = p.n
+	maxEntrySize = 0
+	for iter.Valid() {
+		entrySize := len(iter.Key()) + len(iter.Value())
+		if entrySize > maxEntrySize {
+			mergedSize = maxEntrySize
+		}
+		if node, exact := p.findGE(iter.Key(), true); exact {
+			m := p.nodeData[node+nVal]
+			if iter.Value() != nil {
+				// replace key
+				mergedSize += len(iter.Value()) - m
+			} else {
+				// delete key
+				mergedSize -= p.nodeData[node+nKey] + p.nodeData[node+nVal]
+				mergedCount--
+			}
+		} else {
+			// add key
+			mergedSize += entrySize
+			mergedCount++
+		}
+		iter.Next()
+	}
+	return
+}
+
 // Put sets the value for the given key. It overwrites any previous value
 // for that key; a DB is not a multi-map.
 //
