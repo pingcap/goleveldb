@@ -320,6 +320,30 @@ func (p *DB) findLast() int {
 	return node
 }
 
+// MergedSize calculates the merged size previously.
+func (p *DB) MergedSize(iter iterator.Iterator) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	mergedSize := p.kvSize
+	for iter.Valid() {
+		if node, exact := p.findGE(iter.Key(), true); exact {
+			m := p.nodeData[node+nVal]
+			if iter.Value() != nil {
+				// replace key
+				mergedSize += len(iter.Value()) - m
+			} else {
+				// delete key
+				mergedSize -= p.nodeData[node+nKey] + p.nodeData[node+nVal]
+			}
+		} else {
+			// add key
+			mergedSize += len(iter.Key()) + len(iter.Value())
+		}
+		iter.Next()
+	}
+	return mergedSize
+}
+
 // Put sets the value for the given key. It overwrites any previous value
 // for that key; a DB is not a multi-map.
 //
