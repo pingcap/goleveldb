@@ -9,7 +9,6 @@ package memdb
 
 import (
 	"math/rand"
-	"sync"
 
 	"github.com/pingcap/goleveldb/leveldb/comparer"
 	"github.com/pingcap/goleveldb/leveldb/errors"
@@ -18,21 +17,16 @@ import (
 )
 
 type lockedSource struct {
-	lk  sync.Mutex
 	src rand.Source
 }
 
 func (r *lockedSource) Int63() (n int64) {
-	r.lk.Lock()
 	n = r.src.Int63()
-	r.lk.Unlock()
 	return
 }
 
 func (r *lockedSource) Seed(seed int64) {
-	r.lk.Lock()
 	r.src.Seed(seed)
-	r.lk.Unlock()
 }
 
 // Common errors.
@@ -88,8 +82,6 @@ func (i *dbIter) First() bool {
 	}
 
 	i.forward = true
-	i.p.mu.RLock()
-	defer i.p.mu.RUnlock()
 	if i.slice != nil && i.slice.Start != nil {
 		i.node, _ = i.p.findGE(i.slice.Start, false)
 	} else {
@@ -105,8 +97,6 @@ func (i *dbIter) Last() bool {
 	}
 
 	i.forward = false
-	i.p.mu.RLock()
-	defer i.p.mu.RUnlock()
 	if i.slice != nil && i.slice.Limit != nil {
 		i.node = i.p.findLT(i.slice.Limit)
 	} else {
@@ -122,8 +112,6 @@ func (i *dbIter) Seek(key []byte) bool {
 	}
 
 	i.forward = true
-	i.p.mu.RLock()
-	defer i.p.mu.RUnlock()
 	if i.slice != nil && i.slice.Start != nil && i.p.cmp.Compare(key, i.slice.Start) < 0 {
 		key = i.slice.Start
 	}
@@ -144,8 +132,6 @@ func (i *dbIter) Next() bool {
 		return false
 	}
 	i.forward = true
-	i.p.mu.RLock()
-	defer i.p.mu.RUnlock()
 	i.node = i.p.nodeData[i.node+nNext]
 	return i.fill(false, true)
 }
@@ -163,8 +149,6 @@ func (i *dbIter) Prev() bool {
 		return false
 	}
 	i.forward = false
-	i.p.mu.RLock()
-	defer i.p.mu.RUnlock()
 	i.node = i.p.findLT(i.key)
 	return i.fill(true, false)
 }
@@ -224,7 +208,6 @@ type DB struct {
 	cmp comparer.BasicComparer
 	rnd *bitRand
 
-	mu     sync.RWMutex
 	kvData []byte
 	// Node data:
 	// [0]         : KV offset
@@ -325,9 +308,6 @@ func (p *DB) findLast() int {
 //
 // It is safe to modify the contents of the arguments after Put returns.
 func (p *DB) Put(key []byte, value []byte) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if node, exact := p.findGE(key, true); exact {
 		kvOffset := len(p.kvData)
 		p.kvData = append(p.kvData, key...)
@@ -369,9 +349,6 @@ func (p *DB) Put(key []byte, value []byte) error {
 //
 // It is safe to modify the contents of the arguments after Delete returns.
 func (p *DB) Delete(key []byte) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	node, exact := p.findGE(key, true)
 	if !exact {
 		return ErrNotFound
@@ -392,9 +369,7 @@ func (p *DB) Delete(key []byte) error {
 //
 // It is safe to modify the contents of the arguments after Contains returns.
 func (p *DB) Contains(key []byte) bool {
-	p.mu.RLock()
 	_, exact := p.findGE(key, false)
-	p.mu.RUnlock()
 	return exact
 }
 
@@ -404,14 +379,12 @@ func (p *DB) Contains(key []byte) bool {
 // The caller should not modify the contents of the returned slice, but
 // it is safe to modify the contents of the argument after Get returns.
 func (p *DB) Get(key []byte) (value []byte, err error) {
-	p.mu.RLock()
 	if node, exact := p.findGE(key, false); exact {
 		o := p.nodeData[node] + p.nodeData[node+nKey]
 		value = p.kvData[o : o+p.nodeData[node+nVal]]
 	} else {
 		err = ErrNotFound
 	}
-	p.mu.RUnlock()
 	return
 }
 
@@ -422,7 +395,6 @@ func (p *DB) Get(key []byte) (value []byte, err error) {
 // The caller should not modify the contents of the returned slice, but
 // it is safe to modify the contents of the argument after Find returns.
 func (p *DB) Find(key []byte) (rkey, value []byte, err error) {
-	p.mu.RLock()
 	if node, _ := p.findGE(key, false); node != 0 {
 		n := p.nodeData[node]
 		m := n + p.nodeData[node+nKey]
@@ -431,7 +403,6 @@ func (p *DB) Find(key []byte) (rkey, value []byte, err error) {
 	} else {
 		err = ErrNotFound
 	}
-	p.mu.RUnlock()
 	return
 }
 
@@ -456,8 +427,6 @@ func (p *DB) NewIterator(slice *util.Range) iterator.Iterator {
 
 // Capacity returns keys/values buffer capacity.
 func (p *DB) Capacity() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return cap(p.kvData)
 }
 
@@ -465,28 +434,21 @@ func (p *DB) Capacity() int {
 // key/value will not be accounted for, but it will still consume
 // the buffer, since the buffer is append only.
 func (p *DB) Size() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return p.kvSize
 }
 
 // Free returns keys/values free buffer before need to grow.
 func (p *DB) Free() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return cap(p.kvData) - len(p.kvData)
 }
 
 // Len returns the number of entries in the DB.
 func (p *DB) Len() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return p.n
 }
 
 // Reset resets the DB to initial empty state. Allows reuse the buffer.
 func (p *DB) Reset() {
-	p.mu.Lock()
 	p.maxHeight = 1
 	p.n = 0
 	p.kvSize = 0
@@ -500,7 +462,6 @@ func (p *DB) Reset() {
 		p.nodeData[nNext+n] = 0
 		p.prevNode[n] = 0
 	}
-	p.mu.Unlock()
 }
 
 // New creates a new initialized in-memory key/value DB. The capacity
